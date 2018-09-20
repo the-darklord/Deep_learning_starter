@@ -17,9 +17,9 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 
 # 2D Convolution Neural Network architecture
-class Net(nn.Module):
+class CNN(nn.Module):
     def __init__(self):
-        super(Net, self).__init__()
+        super(CNN, self).__init__()
         self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
         self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
         self.conv2_drop = nn.Dropout2d()
@@ -96,7 +96,7 @@ def main():
         batch_size=test_batch_size, shuffle=True, **kwargs)
 
 
-    model = Net().to(device)
+    model = CNN().to(device)
     optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum)
 
     for epoch in range(1, epochs + 1):
