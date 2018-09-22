@@ -52,9 +52,10 @@ class VGP(nn.Module):
         ard_kernel = kernels.RBFKernel(ard_num_dims = ?)
         return ard_kernel.forward(inputs)
 
-    def generate_xi(self,dims):
-        xi = ?
-        return xi
+    # def generate_xi(self,dims):
+    #     xi = ?
+    #     return xi
+
     def gp_mapping_pred(self, inputs, output, parameters, Kss):
         # get \xi values
         xi = ?
@@ -79,17 +80,15 @@ class VGP(nn.Module):
         return F.sigmoid(self.fc4(h2))
 
     # Compute the forward pass of network
-    def forward(self, x):
-        mu,logvar = self.encode(x.view(-1, 784))
-        z = self.reparametrize(mu,logvar)
+    def forward(self, x):     
+        theta,phi = self.encode()
+        inputs,outputs = self.generating_variational_data(),#split phi)
+        Kss = self.gp_mapping_prior(inputs,theta)
+        mean,cov,L = self.gp_mapping_pred(inputs,outputs,theta,Kss)
+        z = self.generate_z(mean,cov,L)
         x = self.decode(z)
-        return x, mu, logvar
+        return x, mean, cov, L
 
-
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, mu, logvar):
