@@ -79,9 +79,10 @@ class VGP(nn.Module):
         Kss_inv = torch.inverse(Kss)
         Kee = ard_kernel.forward(xi.mul(omegas.float())).mul(sigma_ard)
         #cholsky decomposition
+        cov = Kee - torch.matmul(torch.matmul(Kes,Kss_inv),torch.t(Kes))
         L = torch.potrf(Kee - torch.matmul(torch.matmul(Kes,Kss_inv),torch.t(Kes)),upper = False)
-        mean = #matmul Kes,Kss_inv,ti  
-        return mean, #matmul LL.transpose(),L
+        mean = torch.matmul(torch.matmul(Kes,Kss_inv),outputs)  
+        return mean, cov,L
 
     def generate_z(self, mu, cov, L):
 
@@ -90,6 +91,7 @@ class VGP(nn.Module):
             return eps.mul(L).add_(mu)
         else:
             return mu
+
     # Decoder network
     def decode(self,z):
         h2 = F.relu(self.fc3(z))
