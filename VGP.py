@@ -17,6 +17,18 @@ from torchvision.utils import save_image
 
 from gpytorch import kernels
 
+
+
+
+
+def ARDKernel(x1, x2,lengthscale):
+    x1_ = x1.div(self.lengthscale)
+    x2_ = x2.div(self.lengthscale)
+    x1_, x2_ = self._create_input_grid(x1_, x2_)
+
+    diff = (x1_ - x2_).norm(2, dim=-1)
+    return diff.pow(2).div_(-2).exp_()
+
 # Variational Autoencoder architecture
 class VGP(nn.Module):
     # Whole architecture
@@ -42,28 +54,32 @@ class VGP(nn.Module):
         else:
             return mu
 
-    def generating_variational_data(self,mu,logvar):
+    def generating_variational_data(self,mu,logvar,size = 100):
         # multiply mu and log var to proper signs
+        mu = torch.ones(size,list(mu.shape)[0]).mul(mu)
+        logvar = torch.ones(size,list(mu.shape)[0]).mul(logvar)
         data = self.reparametrize(self,mu,logvar)
-        return #split data into input output pairs
+        return data.split(list(mu.shape)[0],dim = 1)#split data into input output pairs
 
     def gp_mapping_prior(self,inputs,parameters):
-        #add parameters
-        ard_kernel = kernels.RBFKernel(ard_num_dims = ?)
-        return ard_kernel.forward(inputs)
+        omegas, sigma_ard = parameters.split(list(parameters.shape)[0]-1) 
+        ard_kernel = kernels.RBFKernel(ard_num_dims = list(omegas.shape)[0])
+        return ard_kernel.forward(inputs.mul(omegas.float())).mul(sigma_ard), omegas, sigma_ard
 
     # def generate_xi(self,dims):
     #     xi = ?
     #     return xi
 
-    def gp_mapping_pred(self, inputs, output, parameters, Kss):
+    def gp_mapping_pred(self, inputs, output, omegas, sigma_ard, Kss):
+        dim = list(inputs.shape)
         # get \xi values
-        xi = ?
-        ard_kernel = kernels.RBFKernel(ard_num_dims = ?)
-        Kes = ard_kernel.forward(xi,inputs)
-        Kss_inv = #invert Kss
+        xi = torch.randn(1,dim[1])
+        ard_kernel = kernels.RBFKernel(ard_num_dims = dim[1])
+        Kes = ard_kernel.forward(xi.mul(omegas.float()),inputs.mul(omegas.float())).mul(sigma_ard)
+        Kss_inv = torch.inverse(Kss)
+        Kee = ard_kernel.forward(xi.mul(omegas.float())).mul(sigma_ard)
         #cholsky decomposition
-        L = ?
+        L = torch.potrf(Kee - torch.matmul(torch.matmul(Kes,Kss_inv),torch.t(Kes)),upper = False)
         mean = #matmul Kes,Kss_inv,ti  
         return mean, #matmul LL.transpose(),L
 
