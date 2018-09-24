@@ -50,8 +50,6 @@ class VGP(nn.Module):
 
     def generating_variational_data(self,mu,logvar,size = 100):
         # multiply mu and log var to proper signs
-        mu = torch.ones(size,list(mu.shape)[0]).mul(mu)
-        logvar = torch.ones(size,list(mu.shape)[0]).mul(logvar)
         data = self.reparametrize(self,mu,logvar)
         return data.split(list(mu.shape)[0],dim = 1)#split data into input output pairs
 
@@ -65,22 +63,29 @@ class VGP(nn.Module):
     #     return xi
 
     def gp_mapping_pred(self, inputs, output, omegas, sigma_ard, Kss):
-        dim = list(inputs.shape)
+        Kss = self.gp_mapping_prior(inputs,theta)
+        dim = inputs.shape
+        Kss = Kss.view(Kss.shape[1],-1)
+        batch_size = inputs.shape[0]
         # get \xi values
-        xi = torch.randn(1,dim[1])
+        xi = torch.randn(batch_size,1,dim[1])
         ard_kernel = kernels.RBFKernel(ard_num_dims = dim[1])
         Kes = ard_kernel.forward(xi.mul(omegas.float()),inputs.mul(omegas.float())).mul(sigma_ard)
         Kss_inv = torch.inverse(Kss)
         Kee = ard_kernel.forward(xi.mul(omegas.float())).mul(sigma_ard)
+        mean = torch.matmul(torch.matmul(Kes,Kss_inv),outputs)
+        mean = mean.view(mean.shape[0],-1)
         #cholsky decomposition
-        cov = Kee - torch.matmul(torch.matmul(Kes,Kss_inv),torch.t(Kes))
-        L = torch.potrf(Kee - torch.matmul(torch.matmul(Kes,Kss_inv),torch.t(Kes)),upper = False)
-        mean = torch.matmul(torch.matmul(Kes,Kss_inv),outputs)  
-        return mean, cov,L
+        cov = Kee - torch.matmul(torch.matmul(Kes,Kss_inv),Kes.view(Kes.shape[0],Kes.shape[2],-1))
+        L = torch.sqrt(cov)
+        L = torch.ones(mean.shape).mul(L).view(mean.shape[0],-1)
+  
+        return mean, cov
 
-    def generate_z(self, mu, cov, L):
-
+    def generate_z(self, mu, cov):
         if self.training:
+            L = torch.sqrt(cov)
+            L = torch.ones(mean.shape).mul(L).view(mean.shape[0],-1)
             eps = torch.randn_like(mu)
             return eps.mul(L).add_(mu)
         else:
@@ -95,24 +100,23 @@ class VGP(nn.Module):
     def forward(self, x):     
         theta,phi = self.encode(x.view(-1,1,784)) # specially for mnist
         inputs,outputs = self.generating_variational_data(),#split phi)
-        Kss = self.gp_mapping_prior(inputs,theta)
-        mean,cov,L = self.gp_mapping_pred(inputs,outputs,theta,Kss)
-        z = self.generate_z(mean,cov,L)
+        mean, cov = self.gp_mapping_pred(inputs,outputs,theta)#,Kss)
+        z = self.generate_z(mean,cov)
         x = self.decode(z)
-        return x, mean, cov, L
+        return x, mean, cov
 
 
 # Reconstruction + KL divergence losses summed over all elements and batch
-def loss_function(recon_x, x, mu, logvar):
+def loss_function(recon_x, x,z, mu_1,var_1,mu_2, logvar_2,mu_3,logvar_3):
     BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False)
-
-    # see Appendix B from VAE paper:
-    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-    # https://arxiv.org/abs/1312.6114
-    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD_R = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-
-    return BCE + KLD
+    eps = torch.randn_like(z)
+    KLD_1 = F.kl_div(z, eps)
+    
+    KLD_2 = -0.5*torch.sum(1-logvar_2+var_1.log() - (var_1+(mu_2-mu_1).pow(2)).div(logvar_2.exp()))
+    KLD_3 = -0.5 * torch.sum(1 - logvar_3 - mu_3.pow(2).logvar_3.exp())
+    
+    # D Tran. Variational Gaussian Process. ICLR, 2016
+    return BCE + KLD_1 + KLD_2 + KLD_3
 
 def train(epoch, model, optimizer, train_loader, device,args):
     model.train()
@@ -134,7 +138,7 @@ def train(epoch, model, optimizer, train_loader, device,args):
     print('====> Epoch: {} Average loss: {:.4f}'.format(
           epoch, train_loss / len(train_loader.dataset)))
 
-def test(epoch,model, optimizer, test_loader,device,args):
+def test(epoch,model, optimizer, test_loader,device,args): #batch_test = batch_train
     model.eval()
     test_loss = 0
     with torch.no_grad():
