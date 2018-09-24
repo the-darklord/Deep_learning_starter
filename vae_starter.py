@@ -30,7 +30,7 @@ class VAE(nn.Module):
     def encode(self,x):
         h1 = F.relu(self.fc1(x))
         return self.fc21(h1),self.fc22(h1)
-    # Reparametrization trick .Kingma and Welling 2014 'Auto-Encoding Variational Bayes'
+    # Reparametrization trick Kingma and Welling 2014 'Auto-Encoding Variational Bayes'
     def reparametrize(self, mu, logvar):
         if self.training:
             std = torch.exp(0.5*logvar)
@@ -67,8 +67,8 @@ def loss_function(recon_x, x, mu, logvar):
 def train(epoch, model, optimizer, train_loader, device,args):
     model.train()
     train_loss = 0
-    for batch_idx, (data, _) in enumerate(train_loader):
-        data = data.to(device)
+    for batch_idx, (data, _) in enumerate(train_loader): 
+        data = data.to(device) # size = 64x28x28
         optimizer.zero_grad()
         recon_batch, mu, logvar = model(data)
         loss = loss_function(recon_batch, data, mu, logvar)

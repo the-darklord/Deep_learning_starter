@@ -93,7 +93,7 @@ class VGP(nn.Module):
 
     # Compute the forward pass of network
     def forward(self, x):     
-        theta,phi = self.encode()
+        theta,phi = self.encode(x.view(-1,1,784)) # specially for mnist
         inputs,outputs = self.generating_variational_data(),#split phi)
         Kss = self.gp_mapping_prior(inputs,theta)
         mean,cov,L = self.gp_mapping_pred(inputs,outputs,theta,Kss)
@@ -110,7 +110,7 @@ def loss_function(recon_x, x, mu, logvar):
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    KLD_R = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
     return BCE + KLD
 
