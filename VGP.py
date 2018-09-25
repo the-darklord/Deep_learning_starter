@@ -57,19 +57,19 @@ class VGP(nn.Module):
         output_data = self.reparametrize(outputs_mu,outputs_sigma)
         return (input_data, output_data) #split data into input output pairs
 
-    def gp_mapping_prior(self,inputs,parameters):
-        omegas, sigma_ard = parameters.split(list(parameters.shape)[0]-1) 
+    def gp_mapping_prior(self,inputs,omegas, sigma_ard):
+        #omegas, sigma_ard = parameters.split(list(parameters.shape)[0]-2) 
         ard_kernel = kernels.RBFKernel(ard_num_dims = list(omegas.shape)[0])
-        return ard_kernel.forward(inputs.mul(omegas.float())).mul(sigma_ard)#, omegas, sigma_ard
+        return ard_kernel.forward(inputs.mul(omegas.float()),inputs.mul(omegas.float())).mul(sigma_ard)#, omegas, sigma_ard
 
     # def generate_xi(self,dims):
     #     xi = ?
     #     return xi
 
-    def gp_mapping_pred(self, inputs, output, theta):
-        theta = theta.view(theta.shape[0],-1)
-        omegas, sigma_ard = theta[:theta.shape[0]-2],theta[theta.shape[0]-1]
-        Kss = self.gp_mapping_prior(inputs,theta)
+    def gp_mapping_pred(self, inputs, outputs, theta):
+        theta = theta.view(theta.shape[0])
+        omegas, sigma_ard = theta[:theta.shape[0]-1],theta[theta.shape[0]-1]
+        Kss = self.gp_mapping_prior(inputs,omegas, sigma_ard)
         dim = inputs.shape
         Kss = Kss.view(Kss.shape[1],-1)
         batch_size = inputs.shape[0]
@@ -78,20 +78,20 @@ class VGP(nn.Module):
         ard_kernel = kernels.RBFKernel(ard_num_dims = dim[1])
         Kes = ard_kernel.forward(xi.mul(omegas.float()),inputs.mul(omegas.float())).mul(sigma_ard)
         Kss_inv = torch.inverse(Kss)
-        Kee = ard_kernel.forward(xi.mul(omegas.float())).mul(sigma_ard)
+        Kee = ard_kernel.forward(xi.mul(omegas.float()),xi.mul(omegas.float())).mul(sigma_ard)
         mean = torch.matmul(torch.matmul(Kes,Kss_inv),outputs)
         mean = mean.view(mean.shape[0],-1)
         #cholsky decomposition
         cov = Kee - torch.matmul(torch.matmul(Kes,Kss_inv),Kes.view(Kes.shape[0],Kes.shape[2],-1))
-        L = torch.sqrt(cov)
-        L = torch.ones(mean.shape).mul(L).view(mean.shape[0],-1)
-  
+        cov = cov.view(cov.shape[0],-1)
+        cov = torch.ones(mean.shape).mul(cov).view(mean.shape[0],-1)
         return mean, cov
 
     def generate_z(self, mu, cov):
         if self.training:
+            
             L = torch.sqrt(cov)
-            L = torch.ones(mean.shape).mul(L).view(mean.shape[0],-1)
+            #L = torch.ones(mu.shape).mul(L).view(mu.shape[0],-1)
             eps = torch.randn_like(mu)
             return eps.mul(L).add_(mu)
         else:
@@ -105,7 +105,7 @@ class VGP(nn.Module):
     # Compute the forward pass of network
     def forward(self, x):     
         theta,inputs_mu,inputs_sigma, outputs_mu, outputs_sigma = self.encode(x.view(-1,1,784)) # specially for mnist
-        inputs,outputs = self.generating_variational_data(inputs_mu.view(inputs_mu.shape[0],-1),inputs_sigma.view(inputs_mu.shape[0],-1), outputs_mu.view(inputs_mu.shape[0],-1), outputs_sigma.view(inputs_mu.shape[0],-1)),#split phi)
+        inputs,outputs = self.generating_variational_data(inputs_mu.view(inputs_mu.shape[0],-1),inputs_sigma.view(inputs_mu.shape[0],-1), outputs_mu.view(inputs_mu.shape[0],-1), outputs_sigma.view(inputs_mu.shape[0],-1))#split phi)
         mean, cov = self.gp_mapping_pred(inputs,outputs,theta)#,Kss)
         z = self.generate_z(mean,cov)
         x = self.decode(z)
@@ -114,15 +114,21 @@ class VGP(nn.Module):
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x,z, mu_1,var_1,mu_2, logvar_2,mu_3,logvar_3):
+    mu_2 = mu_2.view(mu_2.shape[0],-1)
+    logvar_2 = logvar_2.view(logvar_2.shape[0],-1)
+    # print(mu_2.shape,logvar_2.shape)
+    mu_3 = mu_3.view(mu_3.shape[0],-1)
+    logvar_3 = logvar_3.view(logvar_3.shape[0],-1)
+    # print(mu_3.shape,logvar_3.shape)
     BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False)
     eps = torch.randn_like(z)
+
     KLD_1 = F.kl_div(z, eps)
-    
     KLD_2 = -0.5*torch.sum(1-logvar_2+var_1.log() - (var_1+(mu_2-mu_1).pow(2)).div(logvar_2.exp()))
-    KLD_3 = -0.5 * torch.sum(1 - logvar_3 - mu_3.pow(2).logvar_3.exp())
+    KLD_3 = -0.5 * torch.sum(1 - logvar_3 - mu_3.pow(2).div(logvar_3.exp()))
     
     # D Tran. Variational Gaussian Process. ICLR, 2016
-    return BCE + KLD_1 + KLD_2 + KLD_3
+    return BCE - KLD_1 + KLD_2 + KLD_3
 
 def train(epoch, model, optimizer, train_loader, device,args):
     model.train()
@@ -131,7 +137,7 @@ def train(epoch, model, optimizer, train_loader, device,args):
         data = data.to(device)
         optimizer.zero_grad()
         recon_batch, z, mean, cov, inputs_mu,inputs_sigma, outputs_mu, outputs_sigma = model(data)
-        loss = loss_function(recon_batch, data, z, mean, cov, inputs_mu,inputs_sigma, outputs_mu, outputs_sigma)
+        loss = loss_function(recon_batch, data, z, mean, cov, outputs_mu, outputs_sigma, inputs_mu,inputs_sigma)
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
@@ -157,7 +163,7 @@ def test(epoch,model, optimizer, test_loader,device,args): #batch_test = batch_t
                 comparison = torch.cat([data[:n],
                                       recon_batch.view(args['batch_size'], 1, 28, 28)[:n]])
                 save_image(comparison.cpu(),
-                         'results/reconstruction_' + str(epoch) + '.png', nrow=n)
+                         'results_vgp/reconstruction_' + str(epoch) + '.png', nrow=n)
 
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
@@ -191,11 +197,11 @@ def main():
     for epoch in range(1, args['epochs'] + 1):
         train(epoch, model, optimizer, train_loader, device,args)
         test(epoch, model, optimizer, test_loader, device,args)
-        # with torch.no_grad():
-        #     sample = torch.randn(64, 30).to(device)
-        #     sample = model.decode(sample).cpu()
-        #     save_image(sample.view(64, 1, 28, 28),
-        #                'results/sample_' + str(epoch) + '.png')
+        with torch.no_grad():
+            sample = torch.randn(64, 30).to(device)
+            sample = model.decode(sample).cpu()
+            save_image(sample.view(64, 1, 28, 28),
+                       'results_vgp/sample_' + str(epoch) + '.png')
 
 if __name__ == '__main__':
     main()
