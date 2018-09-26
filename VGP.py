@@ -28,19 +28,20 @@ class VGP(nn.Module):
     # Whole architecture
     def __init__(self):
         super(VGP, self).__init__()
+        self.omegas = torch.ones(100).mul(-1)
+        self.sigma_ard = torch.ones(1)
         self.fc1 = nn.Linear(784, 400)
-        self.fc21 = nn.Linear(400, 1)
-        self.fc22 = nn.Linear(400, 63)
-        self.fc23 = nn.Linear(400, 63)
+        self.fc21 = nn.Linear(400, 100)
+        self.fc22 = nn.Linear(400, 100)
+        self.fc23 = nn.Linear(400, 30)
         self.fc24 = nn.Linear(400, 30)
-        self.fc25 = nn.Linear(400, 30)
         self.fc3 = nn.Linear(30, 400)
         self.fc4 = nn.Linear(400, 784)
 
     # Encoder Network
     def encode(self,x):
         h1 = F.relu(self.fc1(x))
-        return self.fc21(h1),self.fc22(h1),self.fc23(h1),self.fc24(h1),self.fc25(h1)
+        return self.fc21(h1),self.fc22(h1),self.fc23(h1),self.fc24(h1)
     
     # Reparametrization trick .Kingma and Welling 2014 'Auto-Encoding Variational Bayes'
     def reparametrize(self, mu, logvar):
@@ -66,13 +67,13 @@ class VGP(nn.Module):
     #     xi = ?
     #     return xi
 
-    def gp_mapping_pred(self, inputs, outputs, theta):
-        theta = theta.view(theta.shape[0])
-        omegas, sigma_ard = theta[:theta.shape[0]-1],theta[theta.shape[0]-1]
+    def gp_mapping_pred(self, inputs, outputs, omegas, sigma_ard):
+        # theta = theta.view(theta.shape[0])
+        # omegas, sigma_ard = theta[:theta.shape[0]-1],theta[theta.shape[0]-1]
         Kss = self.gp_mapping_prior(inputs,omegas, sigma_ard)
         dim = inputs.shape
         Kss = Kss.view(Kss.shape[1],-1)
-        batch_size = inputs.shape[0]
+        batch_size = omegas.shape[0]
         # get \xi values
         xi = torch.randn(batch_size,1,dim[1])
         ard_kernel = kernels.RBFKernel(ard_num_dims = dim[1])
@@ -95,7 +96,7 @@ class VGP(nn.Module):
             eps = torch.randn_like(mu)
             return eps.mul(L).add_(mu)
         else:
-            return mu
+            return mu 
 
     # Decoder network
     def decode(self,z):
@@ -103,10 +104,11 @@ class VGP(nn.Module):
         return F.sigmoid(self.fc4(h2))
 
     # Compute the forward pass of network
-    def forward(self, x):     
-        theta,inputs_mu,inputs_sigma, outputs_mu, outputs_sigma = self.encode(x.view(-1,1,784)) # specially for mnist
+    def forward(self, x): 
+        omegas,sigma_ard = self.omegas, self.sigma_ard    
+        inputs_mu,inputs_sigma, outputs_mu, outputs_sigma = self.encode(x.view(-1,1,784)) # specially for mnist
         inputs,outputs = self.generating_variational_data(inputs_mu.view(inputs_mu.shape[0],-1),inputs_sigma.view(inputs_mu.shape[0],-1), outputs_mu.view(inputs_mu.shape[0],-1), outputs_sigma.view(inputs_mu.shape[0],-1))#split phi)
-        mean, cov = self.gp_mapping_pred(inputs,outputs,theta)#,Kss)
+        mean, cov = self.gp_mapping_pred(inputs,outputs,omegas, sigma_ard)#,Kss)
         z = self.generate_z(mean,cov)
         x = self.decode(z)
         return x, z, mean, cov, inputs_mu,inputs_sigma, outputs_mu, outputs_sigma
@@ -114,21 +116,25 @@ class VGP(nn.Module):
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x,z, mu_1,var_1,mu_2, logvar_2,mu_3,logvar_3):
+    # print(recon_x.max())
+
     mu_2 = mu_2.view(mu_2.shape[0],-1)
     logvar_2 = logvar_2.view(logvar_2.shape[0],-1)
     # print(mu_2.shape,logvar_2.shape)
     mu_3 = mu_3.view(mu_3.shape[0],-1)
     logvar_3 = logvar_3.view(logvar_3.shape[0],-1)
     # print(mu_3.shape,logvar_3.shape)
-    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False)
-    eps = torch.randn_like(z)
 
-    KLD_1 = F.kl_div(z, eps)
-    KLD_2 = -0.5*torch.sum(1-logvar_2+var_1.log() - (var_1+(mu_2-mu_1).pow(2)).div(logvar_2.exp()))
-    KLD_3 = -0.5 * torch.sum(1 - logvar_3 - mu_3.pow(2).div(logvar_3.exp()))
+    # BCE = torch.nn.BCEWithLogitsLoss(recon_x, x.view(-1, 784))
+    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), size_average=False)
+    #eps = torch.randn_like(z)
+
+    KLD_1 = 0.5 * torch.sum(-1 - var_1.log() + mu_1.pow(2) + var_1)#F.kl_div(z, eps)
+    KLD_2 = 0.5 * torch.sum(-1 + logvar_2 - var_1.log() + (var_1+(mu_2-mu_1).pow(2)).div(logvar_2.exp()))
+    KLD_3 = 0.5 * torch.sum(-1 + logvar_3 + (1+mu_3.pow(2)).div(logvar_3.exp()))
     
     # D Tran. Variational Gaussian Process. ICLR, 2016
-    return BCE - KLD_1 + KLD_2 + KLD_3
+    return BCE #- KLD_1 - KLD_2 - KLD_3
 
 def train(epoch, model, optimizer, train_loader, device,args):
     model.train()
@@ -157,7 +163,7 @@ def test(epoch,model, optimizer, test_loader,device,args): #batch_test = batch_t
         for i, (data, _) in enumerate(test_loader):
             data = data.to(device)
             recon_batch,  z, mean, cov, inputs_mu,inputs_sigma, outputs_mu, outputs_sigma = model(data)
-            test_loss += loss_function(recon_batch, data,  z, mean, cov, inputs_mu,inputs_sigma, outputs_mu, outputs_sigma).item()
+            test_loss += loss_function(recon_batch, data,  z, mean, cov, outputs_mu, outputs_sigma, inputs_mu,inputs_sigma).item()
             if i == 0:
                 n = min(data.size(0), 8)
                 comparison = torch.cat([data[:n],
@@ -170,38 +176,38 @@ def test(epoch,model, optimizer, test_loader,device,args): #batch_test = batch_t
 
 
 def main():
-    # Training settings
-    args = {}
-    args['batch_size'] = 64
-    args['test_batch_size'] = 64
-    args['epochs'] = 10
-    args['lr'] = .01
-    args['momentum'] = 0.5
-    args['seed'] = 1
-    args['log_interval'] = 10
-    kwargs = {}
-    torch.manual_seed(args['seed'])
-    device = torch.device("cpu")    
-    # Loading Dataset
-    train_loader = torch.utils.data.DataLoader(
-                    datasets.MNIST('../data', train=True, download=True,
-                    transform=transforms.ToTensor()),
-                    batch_size=args['batch_size'], shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(
-                    datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
-                    batch_size=args['batch_size'], shuffle=True, **kwargs)
+        # Training settings
+        args = {}
+        args['batch_size'] = 100
+        args['test_batch_size'] = 100
+        args['epochs'] = 10
+        args['lr'] = .01
+        args['momentum'] = 0.5
+        args['seed'] = 1
+        args['log_interval'] = 10
+        kwargs = {}
+        torch.manual_seed(args['seed'])
+        device = torch.device("cpu")    
+        # Loading Dataset
+        train_loader = torch.utils.data.DataLoader(
+                        datasets.MNIST('../data', train=True, download=True,
+                        transform=transforms.ToTensor()),
+                        batch_size=args['batch_size'], shuffle=True, **kwargs)
+        test_loader = torch.utils.data.DataLoader(
+                        datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
+                        batch_size=args['batch_size'], shuffle=True, **kwargs)
 
-    model = VGP().to(device)
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+        model = VGP().to(device)
+        optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-    for epoch in range(1, args['epochs'] + 1):
-        train(epoch, model, optimizer, train_loader, device,args)
-        test(epoch, model, optimizer, test_loader, device,args)
-        with torch.no_grad():
-            sample = torch.randn(64, 30).to(device)
-            sample = model.decode(sample).cpu()
-            save_image(sample.view(64, 1, 28, 28),
-                       'results_vgp/sample_' + str(epoch) + '.png')
+        for epoch in range(1, args['epochs'] + 1):
+            train(epoch, model, optimizer, train_loader, device,args)
+            test(epoch, model, optimizer, test_loader, device,args)
+            with torch.no_grad():
+                sample = torch.randn(64, 30).to(device)
+                sample = model.decode(sample).cpu()
+                save_image(sample.view(64, 1, 28, 28),
+                           'results_vgp/sample_' + str(epoch) + '.png')
 
 if __name__ == '__main__':
     main()
