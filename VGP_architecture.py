@@ -1,3 +1,12 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Sept 22 21:53:08 2018
+For: Starter_kit_Variational_Gaussian_Process_pytorch
+Author: Gaurav_Shrivastava 
+
+"""
+
+# Imports
 import torch
 import torch.utils.data
 from torch import nn, optim
