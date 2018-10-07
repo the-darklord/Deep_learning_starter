@@ -26,6 +26,6 @@ Currently I am in the process of completing the variational gaussian process cod
 ### To Do list
 
 - [x] Write a CNN starter script
-- [ ] Complete the Cross-Convolutional Layer Code in Pytorch
+- [ ] Complete the [Cross-Convolutional](http://visualdynamics.csail.mit.edu) Layer Code in Pytorch
 - [ ] Port the whole code for Visual Dynamics from Lua to Pytorch
 
