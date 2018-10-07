@@ -17,6 +17,7 @@ from torchvision.utils import save_image
 
 # Variational Autoencoder architecture
 class VAE(nn.Module):
+    
     # Whole architecture
     def __init__(self):
         super(VAE, self).__init__()
@@ -30,6 +31,7 @@ class VAE(nn.Module):
     def encode(self,x):
         h1 = F.relu(self.fc1(x))
         return self.fc21(h1),self.fc22(h1)
+    
     # Reparametrization trick Kingma and Welling 2014 'Auto-Encoding Variational Bayes'
     def reparametrize(self, mu, logvar):
         if self.training:
@@ -60,6 +62,7 @@ def loss_function(recon_x, x, mu, logvar):
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
     return BCE + KLD
