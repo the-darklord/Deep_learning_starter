@@ -16,10 +16,8 @@ Currently I am in the process of completing the variational gaussian process cod
 
 - [x] Variational Autoencoder simple example
 - [x] Add code for Gaussian Process
-- [x] Earth (Orbit/Moon)
-- [x] Mars
-- [ ] Jupiter
-- [ ] Saturn
-- [ ] Uranus
-- [ ] Neptune
-- [ ] Comet Haley
+- [x] Complete the code for Variational Inference
+- [x] Complete the code for Auxilary Inference
+- [x] Complete the code for Loss Function
+- [ ] Check for numerical stablity
+- [ ] Test it for MNIST dataset
