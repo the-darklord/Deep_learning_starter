@@ -102,6 +102,8 @@ def main():
     for epoch in range(1, epochs + 1):
         train(model, device, train_loader, optimizer, epoch, log_interval)
         test(model, device, test_loader)
+        
+    torch.save(model,'trained_model.pth')
 
 
 if __name__ == '__main__':
